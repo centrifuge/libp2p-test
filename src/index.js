@@ -83,14 +83,16 @@ const DataProtocolRequest = root.lookupType(
   "api.v1.data_protocol.DataProtocolRequest"
 );
 
+const BeepRequest = root.lookupType("api.v1.data_protocol.BeepRequest");
+
 const DataProtocolResponse = root.lookupType(
   "api.v1.data_protocol.DataProtocolResponse"
 );
 
-// const payload = { beepRequest: "test beep" };
 const message = DataProtocolRequest.create({
-  beepRequest: {},
+  beepRequest: BeepRequest,
 });
+
 const buffer = DataProtocolRequest.encode(message).finish();
 
 // write
@@ -108,7 +110,7 @@ pipe(
   (source) => map(source, (buf) => DataProtocolResponse.decode(buf.subarray())),
   async (source) => {
     for await (const msg of source) {
-      console.log(msg.toJSON().beepResponse);
+      console.log({ msg });
     }
   }
 );
