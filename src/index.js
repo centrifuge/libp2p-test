@@ -4,9 +4,19 @@ import { multiaddr } from "@multiformats/multiaddr";
 import { noise } from "@chainsafe/libp2p-noise";
 import { yamux } from "@chainsafe/libp2p-yamux";
 import { identify } from "@libp2p/identify";
+import { tcp } from "@libp2p/tcp";
 import { ping } from "@libp2p/ping";
+import * as websocketsFilter from "@libp2p/websockets/filters";
 import { peerIdFromKeys, peerIdFromString } from "@libp2p/peer-id";
 import { kadDHT, removePrivateAddressesMapper } from "@libp2p/kad-dht";
+import protobuf from "protobufjs";
+import path from "path";
+import { fileURLToPath } from "url";
+import * as lp from "it-length-prefixed";
+import map from "it-map";
+import { pipe } from "it-pipe";
+import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
+import { toString as uint8ArrayToString } from "uint8arrays/to-string";
 
 // Cosmin: 12D3KooWDnScZfemMmJ5efz9ZkYZ7kW6d8Ezi62ADy57N2VFLUtD
 // JP:     12D3KooWCWV4hXqS28dB7ybxDTAn78MsQmPMfTGi6aTGqffMhfFs
@@ -23,7 +33,12 @@ const peerId = await peerIdFromKeys(publicKey, privateKey);
 
 const node = await createLibp2p({
   peerId,
-  transports: [webSockets()],
+  transports: [
+    webSockets({
+      filter: websocketsFilter.all,
+    }),
+    tcp(),
+  ],
   connectionEncryption: [noise()],
   streamMuxers: [yamux()],
   services: {
@@ -31,9 +46,8 @@ const node = await createLibp2p({
     identify: identify(),
     dht: kadDHT({
       kBucketSize: 100,
-      protocol: "/centrifuge/kad",
-      // protocol: "/sub/kad",
-      client: false,
+      protocol: "/sup/kad",
+      clientMode: true,
       peerInfoMapper: removePrivateAddressesMapper,
     }),
   },
@@ -42,10 +56,10 @@ const node = await createLibp2p({
 await node.start();
 
 const ma = multiaddr(
-  "/ip4/34.159.117.205/tcp/30333/ws/p2p/12D3KooWMspZo4aMEXWBH4UXm3gfiVkeu1AE68Y2JDdVzU723QPc"
+  "/ip4/34.107.30.188/tcp/30333/ws/p2p/12D3KooWN6kXPjAGhYt21gVApD55EAhN7xLxhYRJSLN4HZdWe9sV"
 );
 
-await node.dialProtocol(ma, "/centrifuge/kad");
+await node.dialProtocol(ma, "/sup/kad");
 
 const cosminPeerId = peerIdFromString(
   "12D3KooWDnScZfemMmJ5efz9ZkYZ7kW6d8Ezi62ADy57N2VFLUtD"
@@ -53,4 +67,48 @@ const cosminPeerId = peerIdFromString(
 
 const peerInfo = await node.peerRouting.findPeer(cosminPeerId);
 
-console.log(peerInfo);
+const stream = await node.dialProtocol(
+  peerInfo.multiaddrs[0],
+  "/centrifuge-data-extension/1"
+);
+
+const __filename = fileURLToPath(import.meta.url); // get the resolved path to the file
+const __dirname = path.dirname(__filename); // get the name of the directory
+
+const filePath = path.join(__dirname, "data_protocol.v1.proto");
+
+const root = await protobuf.load(filePath);
+
+const DataProtocolRequest = root.lookupType(
+  "api.v1.data_protocol.DataProtocolRequest"
+);
+
+const DataProtocolResponse = root.lookupType(
+  "api.v1.data_protocol.DataProtocolResponse"
+);
+
+// const payload = { beepRequest: "test beep" };
+const message = DataProtocolRequest.create({
+  beepRequest: {},
+});
+const buffer = DataProtocolRequest.encode(message).finish();
+
+// write
+pipe(
+  buffer,
+  (source) => map(source, () => source),
+  (source) => lp.encode(source),
+  stream.sink
+);
+
+// read
+pipe(
+  stream.source,
+  (source) => lp.decode(source),
+  (source) => map(source, (buf) => DataProtocolResponse.decode(buf.subarray())),
+  async (source) => {
+    for await (const msg of source) {
+      console.log(msg.toJSON().beepResponse);
+    }
+  }
+);
