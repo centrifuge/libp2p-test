@@ -67,6 +67,8 @@ const cosminPeerId = peerIdFromString(
 
 const peerInfo = await node.peerRouting.findPeer(cosminPeerId);
 
+console.log(peerInfo);
+
 const stream = await node.dialProtocol(
   peerInfo.multiaddrs[0],
   "/centrifuge-data-extension/1"
@@ -84,6 +86,9 @@ const DataProtocolRequest = root.lookupType(
 );
 
 const BeepRequest = root.lookupType("api.v1.data_protocol.BeepRequest");
+// const CreateDocumentRequest = root.lookupType(
+//   "api.v1.data_protocol.CreateDocumentRequest"
+// );
 
 const DataProtocolResponse = root.lookupType(
   "api.v1.data_protocol.DataProtocolResponse"
@@ -92,6 +97,19 @@ const DataProtocolResponse = root.lookupType(
 const message = DataProtocolRequest.create({
   beepRequest: BeepRequest,
 });
+
+// const payload = DataProtocolRequest.create({
+//   createDocumentRequest: CreateDocumentRequest.create({
+//     id: 8,
+//     version: 9,
+//     pool_id: 10,
+//     loan_id: 11,
+//     users: [],
+//     data: [],
+//   }),
+// });
+
+// const buffer = DataProtocolRequest.encode(payload).finish();
 
 const buffer = DataProtocolRequest.encode(message).finish();
 
@@ -110,7 +128,7 @@ pipe(
   (source) => map(source, (buf) => DataProtocolResponse.decode(buf.subarray())),
   async (source) => {
     for await (const msg of source) {
-      console.log({ msg });
+      console.log(msg.toJSON());
     }
   }
 );
